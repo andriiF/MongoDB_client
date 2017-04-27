@@ -1,7 +1,7 @@
 # MongoDB_client
 Simple way to use MongoDb.
 
-#Run configration
+# Run configration
 You should run index.php file wih parameters like host and port
 Example: php index.php host port.
 If you don't give the params script will use standard params(host=localhost, port=27017)

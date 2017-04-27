@@ -33,7 +33,11 @@ while (true) {
             $options = $dbParams->createOption($query);
 
             $query_mongo = new MongoDB\Driver\Query($filter, $options);
-            $mongoResult = $connection->executeQuery("test." . $dbParams->collectionName, $query_mongo);
+            if (isset($argv[3])) {
+                $mongoResult = $connection->executeQuery("{$argv[3]}." . $dbParams->collectionName, $query_mongo);
+            } else {
+                $mongoResult = $connection->executeQuery("test." . $dbParams->collectionName, $query_mongo);
+            }
 
             foreach ($mongoResult as $row) {
                 //print_r($row);

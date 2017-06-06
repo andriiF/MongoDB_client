@@ -10,31 +10,23 @@ class DbParameters {
     public function createFilter($query) {
 
         $filters = [];
-        $indexofSelect = array_search('select', $query);
-        $indexofFrom = array_search('from', $query);
-        $indexofWhere = array_search('where', $query);
-        $this->collectionName = $query[$indexofFrom + 1];
+        $this->collectionName = $query[$this->getIndex("from", $query) + 1];
         $fieldsStr = "";
 
-        for ($i = $indexofSelect + 1; $i < $indexofFrom; $i++) {
+        $indexofFrom = $this->getIndex("from", $query);
+        for ($i = $this->getIndex("select", $query) + 1; $i < $indexofFrom; $i++) {
             $fieldsStr = $fieldsStr . $query[$i];
         }
         $this->fields = explode(",", $fieldsStr);
 
-        if (array_search('order', $query) != null) {
-            $indexEndCondition = array_search('order', $query);
-        } else if (array_search('skip', $query) != null) {
-            $indexEndCondition = array_search('skip', $query);
-        } else if (array_search('limit', $query) != null) {
-            $indexEndCondition = array_search('limit', $query);
-        } else {
-            $indexEndCondition = count($query);
-        }
-        if ($indexofWhere != null) {
+        $indexEndCondition = $this->getIndexEnd($query);
+
+        if ($this->getIndex("where", $query) != null) {
             $conditionStr = "";
-            for ($i = $indexofWhere + 1; $i < $indexEndCondition; $i++) {
+            for ($i = $this->getIndex("where", $query) + 1; $i < $indexEndCondition; $i++) {
                 $conditionStr = $conditionStr . $query[$i];
             }
+
             $conditionStr = str_replace("<>", '$ne', $conditionStr);
             $conditionStr = str_replace(">=", '$gte', $conditionStr);
             $conditionStr = str_replace("<=", '$lte', $conditionStr);
@@ -45,64 +37,17 @@ class DbParameters {
             $andCondition = explode("and", $conditionStr);
             $orCondition = explode("or", $conditionStr);
 
-            //processing And operation
             if (count($andCondition) > 1) {
-                $andfilter = [];
-                foreach ($andCondition as $condt) {
-                    foreach ($delimiters as $delimiter) {
-                        $values = explode($delimiter, $condt);
-                        if (count($values) > 1) {
 
-                            if ($delimiter == "=") {
-                                $andfilter[$values[0]] = $values[1];
-                            } else {
-                                $andfilter[$values[0]] = array($delimiter => $values[1]);
-                            }
-                            break;
-                        }
-                    }
-                }
-
-
-                $filters = $andfilter;
-                //processing or operation
+                $filters = $this->getAndFilter($andCondition, $delimiters);
             } else if (count($orCondition) > 1) {
-                $orfilter = [];
-                foreach ($orCondition as $condt) {
-                    foreach ($delimiters as $delimiter) {
-                        $values = explode($delimiter, $condt);
-                        if (count($values) > 1) {
 
-                            if ($delimiter == "=") {
-                                $temp = [];
-                                $temp[$values[0]] = $values[1];
-                                array_push($orfilter, $temp);
-                            } else {
-                                $temp = [];
-                                $temp[$values[0]] = array($delimiter => $values[1]);
-                                array_push($orfilter, $temp);
-                            }
-                            break;
-                        }
-                    }
-                }
                 $filters['$or'] = [];
-                $filters['$or'] = array_merge($filters['$or'], $orfilter);
+                $filters['$or'] = array_merge($filters['$or'], $this->getOrFilter($orCondition, $delimiters));
                 //processing other simple operation
             } else {
-                foreach ($delimiters as $delimiter) {
-                    $values = explode($delimiter, $conditionStr);
-                    if (count($values) > 1) {
-
-                        if ($delimiter == "=") {
-                            $filter[$values[0]] = $values[1];
-                        } else {
-                            $filter[$values[0]] = array($delimiter => $values[1]);
-                        }
-                        break;
-                    }
-                }
-                $filters = $filter;
+                $filter = [];
+                $filters = $this->getSimpleFilter($filter, $delimiters, $conditionStr);
             }
         }
         return $filters;
@@ -113,19 +58,18 @@ class DbParameters {
         $options = [];
         //Limit
         if (array_search('limit', $query) != null) {
-            $this->limit = $query[array_search('limit', $query) + 1];
+            $this->limit = $query[$this->getIndex("limit", $query) + 1];
             $options["limit"] = $this->limit;
         }
         //Skip
         if (array_search('skip', $query) != null) {
-            $this->skip = $query[array_search('skip', $query) + 1];
+            $this->skip = $query[$this->getIndex("skip", $query) + 1];
             $options["skip"] = $this->skip;
         }
         //Order by
-        if (array_search('order', $query) != null) {
+        if ($this->getIndex("order", $query) != null) {
             $indexofOrderBy = array_search('order', $query) + 1;
             $sortElement = $query[$indexofOrderBy + 1];
-
 
             if ($query[$indexofOrderBy + 2] == "desc") {
                 $orderOn = -1;
@@ -150,6 +94,69 @@ class DbParameters {
             $options["projection"] = $fields;
         }
         return $options;
+    }
+
+    private function getIndex($param, $query) {
+        return array_search($param, $query);
+    }
+
+    private function getIndexEnd($query) {
+        if ($this->getIndex("order", $query) != null) {
+            return $this->getIndex("order", $query);
+        } else if ($this->getIndex("skip", $query) != null) {
+            return $this->getIndex("skip", $query);
+        } else if ($this->getIndex("limit", $query) != null) {
+            return $this->getIndex("limit", $query);
+        } else {
+            return count($query);
+        }
+    }
+
+    private function getAndFilter($andCondition, $delimiters) {
+        $andfilter = [];
+        foreach ($andCondition as $condt) {
+            $andfilter = $this->getSimpleFilter($andfilter, $delimiters, $condt);
+        }
+        return $andfilter;
+    }
+
+    private function getSimpleFilter($filter, $delimiters, $conditionStr) {
+        foreach ($delimiters as $delimiter) {
+            $values = explode($delimiter, $conditionStr);
+            if (count($values) > 1) {
+
+                if ($delimiter == "=") {
+                    $filter[$values[0]] = $values[1];
+                } else {
+                    $filter[$values[0]] = array($delimiter => $values[1]);
+                }
+                break;
+            }
+        }
+        return $filter;
+    }
+
+    private function getOrFilter($orCondition, $delimiters) {
+        $orfilter = [];
+        foreach ($orCondition as $condt) {
+            foreach ($delimiters as $delimiter) {
+                $values = explode($delimiter, $condt);
+                if (count($values) > 1) {
+
+                    if ($delimiter == "=") {
+                        $temp = [];
+                        $temp[$values[0]] = $values[1];
+                        array_push($orfilter, $temp);
+                    } else {
+                        $temp = [];
+                        $temp[$values[0]] = array($delimiter => $values[1]);
+                        array_push($orfilter, $temp);
+                    }
+                    break;
+                }
+            }
+        }
+        return $orfilter;
     }
 
 }
